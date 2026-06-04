@@ -1,6 +1,6 @@
 # Senso4s BLE Protocol
 
-This document describes the observed BLE protocol used by the Senso4s propane gas cylinder sensor. It is written to be independent of any programming language or implementation framework.
+This document describes the observed BLE protocol used by the [Senso4s](https://senso4s.com/) propane gas cylinder sensor. It is written to be independent of any programming language or implementation framework.
 
 ## Scope
 
