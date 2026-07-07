@@ -1,19 +1,18 @@
 # OH2MP ESP32 BLE2MQTT
 
-### An ESP32 based gateway that listens BLE beacons and sends the data via MQTT
+## An ESP32 based gateway that listens BLE beacons and sends the data via MQTT
 
 Web-configurable BLE data collector that sends data to a MQTT broker. In my own configuration I have
-Mosquitto as a broker and InfluxDB + Telegraf with MQTT plugin. See [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md). 
+Mosquitto as a broker and InfluxDB + Telegraf with MQTT plugin. See [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md).
 
 This software sends data as JSON to the broker. The data is specified to be compact to avoid high bills
 when this is used with a mobile internet with some data plan. See [DATAFORMATS.md](DATAFORMATS.md)
 
-The idea for this is home or RV use, not scientific environment. Because of that eg. the temperatures are 
+The idea for this is home or RV use, not scientific environment. Because of that eg. the temperatures are
 only with 0.1°C precision and acceleration sensors of Ruuvi tags are simply ignored. It's not very
 important to know the acceleration while the tag is in a fridge and we want to keep data compact.
 
-
-BLE beacons that are currently supported:
+## Supported BLE beacons
 
 - [Ruuvi tag](https://ruuvi.com/) (Data format V5 aka RAWv2 only)
 - [Xiaomi Mijia Bluetooth Thermometer 2 with ATC_MiThermometr firmware](https://github.com/atc1441/ATC_MiThermometer) (stock firmware not supported)
@@ -28,44 +27,69 @@ BLE beacons that are currently supported:
 This is partly based on the same code as [OH2MP ESP32 Smart RV](https://github.com/oh2mp/esp32_smart_rv)
 and [OH2MP ESP32 Ruuvicollector](https://github.com/oh2mp/esp32_ruuvicollector)
 
-------
+---
 
 ## Software prerequisities
 
 - Some MQTT broker like Mosquitto running somewhere.
-- [Arduino IDE](https://www.arduino.cc/en/main/software) – __The current tested IDE version is 2.3.6__
-- [Arduino LITTLEFS uploader](https://github.com/earlephilhower/arduino-littlefs-upload) – Optional if you use the ready made image
+
+### PlatformIO
+
+This repository can now be built with PlatformIO.
+
+- Project config: `platformio.ini`
+- Firmware source path: `src/main.cpp`
+- LittleFS upload directory: `data/littlefs`
+
+Typical commands:
+
+- Build firmware: `pio run`
+- Upload firmware: `pio run -t upload`
+- Upload LittleFS files: `pio run -t uploadfs`
+- Serial monitor: `pio device monitor -b 115200`
+
+The PlatformIO environment uses the same partitioning as the Arduino IDE setup:
+**Huge APP (3MB No OTA)**.
 
 ### Libraries needed
 
-__Make sure your esp32 board version installed is 2.0.x__
+With PlatformIO, the required dependencies are resolved automatically when you run `pio run`.
 
-This has been tested with version 2.0.17 (see Boards Manager in Arduino IDE)
+- Framework: Arduino
+- Platform: `espressif32`
+- External dependency: `PubSubClient 2.8`
 
-Install these from the IDE library manager. I have added the versions which have tested and confirmed to be working.
-
-- EspMQTTClient 1.13.3
-- LittleFS_esp32 1.0.6 (1.0.7 is buggy)
-- PubSubClient 2.8
+No separate Arduino IDE library installation is needed for the PlatformIO build.
 
 ## Installation and configuration
 
-Choose correct ESP32 board and change partitioning setting:<br /> **Tools -> Partition Scheme -> Huge APP(3MB No OTA)**
+With PlatformIO, the partition table is already configured in `platformio.ini`, so there is no Arduino IDE menu setting to change.
 
-You can use the filesystem uploader tool to upload the contents of data library. It contains the html pages for
-the configuring portal. Or you can just upload the provided image with esptool:
+Typical setup flow:
 
-`esptool --chip esp32 --port /dev/ttyUSB0 --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size detect 3211264 esp32_ble2mqtt.littlefs.bin`
+1. Connect the ESP32 board.
+2. Build the firmware:
+   `pio run -e esp32dev`
+3. Upload the firmware:
+   `pio run -e esp32dev -t upload`
+4. Upload the LittleFS web UI and configuration files from `data/littlefs`:
+   `pio run -e esp32dev -t uploadfs`
+5. Open the serial monitor if needed:
+   `pio device monitor -b 115200`
+
+If PlatformIO does not detect the board automatically, add `--upload-port <port>` to the upload commands.
+
+The web portal content and any precreated configuration files live in `data/littlefs`. Edit those files before running `uploadfs` if you want the device to start with predefined settings.
 
 By default the software assumes that there are maximum 16 beacons or tags, but this can be changed from the code,
-see row `#define MAX_TAGS 16`
+see `#define MAX_TAGS 16` in `src/main.cpp`
 
 ## Configuration option
 
 The portal saves all configurations onto the LITTLEFS filesystem. They are just text files, so you can
 precreate them and then your ESP32 Ruuvi Collector is preconfigured and you dont' have to use the portal
-at all. Just place yout configuration files into the data/littlefs directory along the html files and 
-upload them with ESP filesystem uploader.
+at all. Just place yout configuration files into the data/littlefs directory along the html files and
+upload them with `pio run -e esp32dev -t uploadfs`.
 
 See [FORMATS.md](FORMATS.md).
 
@@ -85,10 +109,10 @@ shows a short color effect to see that it's working. Colors and meanings in oper
 The LED pins are configurable from `#define` rows. The defaults are 21 red, 22 green and 23 blue.
 Every one should be connected with a eg. 1kΩ resistor.
 
-__TIP:__ connect an LDR to the cathode side of the LED. Then it will illuminate brighly in daylight
-but will be dimmed in the dark. 
+**TIP:** connect an LDR to the cathode side of the LED. Then it will illuminate brighly in daylight
+but will be dimmed in the dark.
 
-------
+---
 
 ## Portal mode
 
@@ -98,14 +122,14 @@ The pin can be also changed from the code, see row `#define APREQUEST 0`
 In the start of portal mode the ESP32 is scanning 11 seconds for beacons. During the scan the color
 behavior of the LED is similar like in operating mode.
 
-WiFi AP is not listening yet at the scanning period. After the LED starts illuminating green, 
+WiFi AP is not listening yet at the scanning period. After the LED starts illuminating green,
 connect to WiFi **ESP32&nbsp;BLE2MQTT**, accept that there's no internet connection
 and take your browser to `http://192.168.4.1/`
 
-The web GUI should be self explanatory. 
+The web GUI should be self explanatory.
 
 It's a good idea to find out the Bluetooth MAC addresses of the beacons beforehand. For Ruuvi tags the
-easiest way is to use Ruuvi software. For other beacons eg. 
+easiest way is to use Ruuvi software. For other beacons eg.
 [BLE Scanner by Bluepixel Technologies](https://play.google.com/store/apps/details?id=com.macdom.ble.blescanner)
 is a suitable app for Android.
 
@@ -113,8 +137,8 @@ The portal mode has a timeout. The unit will reboot after 2 minutes of inactivit
 is visible on the screen. This timeout can be changed from line #define APTIMEOUT
 The LED changes its color slowly from green to yellow and then red depending how near the timeout is.
 
-There's almost no sanity checks for the data sent from the forms. This is not a public web service and if 
-you want to mess up your board or try to make a denial of service using eg. buffer overflows, feel free to 
+There's almost no sanity checks for the data sent from the forms. This is not a public web service and if
+you want to mess up your board or try to make a denial of service using eg. buffer overflows, feel free to
 do so.
 
 ### Sample screenshots from the portal
@@ -123,5 +147,4 @@ do so.
 ![Sensors config](s/sensors_config.jpg)
 ![MQTT config](s/mqtt_config.jpg)
 
-------
-
+---

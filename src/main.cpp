@@ -44,8 +44,9 @@
 #define TAG_MOPEKA  9
 #define TAG_IBSTH2  10
 #define TAG_ALPICOOL 11
+#define TAG_SENSO4S 12
 
-const char type_name[12][10] PROGMEM = {"", "\u0550UUVi", "ATC_Mi", "Energy", "Water", "Flame", "DS18x20", "DHTxx", "Wattson", "Mopeka\u2713", "IBS-TH2", "Alpicool"};
+const char type_name[13][10] PROGMEM = {"", "\u0550UUVi", "ATC_Mi", "Energy", "Water", "Flame", "DS18x20", "DHTxx", "Wattson", "Mopeka\u2713", "IBS-TH2", "Alpicool", "Senso4s"};
 // end of tag type enumerations and names
 
 char tagdata[MAX_TAGS][32];      // space for raw tag data unparsed
@@ -74,7 +75,7 @@ char mqtt_pass[64] = "bar";
 char mqtt_host[64] = "192.168.36.99";
 int  mqtt_port = 1883;
 
-WiFiMulti WiFiMulti;
+WiFiMulti wifiMulti;
 WiFiClient wificlient;
 PubSubClient client(wificlient);
 
@@ -98,6 +99,20 @@ BLEClient *pClient;
 BLERemoteService *pRemoteService;
 BLERemoteCharacteristic *rCharacteristic;
 BLERemoteCharacteristic *wCharacteristic;
+
+void set_led(uint8_t r, uint8_t g, uint8_t b);
+void mqtt_send();
+void ble_task(void *parameter);
+void startPortal();
+void httpRoot();
+void httpStyle();
+void httpSensors();
+void httpSaveSensors();
+void httpWifi();
+void httpSaveWifi();
+void httpMQTT();
+void httpSaveMQTT();
+void httpBoot();
 
 /* ------------------------------------------------------------------------------- */
 /* Get known tag index from MAC address. Format: 12:34:56:78:9a:bc */
@@ -134,6 +149,8 @@ uint8_t tagTypeFromPayload(const uint8_t *payload, const uint8_t *mac) {
         if (memcmp(payload + 5, "\xE5\x02\x48\xE9", 4) == 0)  return TAG_WATER;
         if (memcmp(payload + 5, "\xE5\x02\x13\x1A", 4) == 0)  return TAG_THCPL;
         if (memcmp(payload + 5, "\xE5\x02\x20\x18", 4) == 0)  return TAG_DS1820;
+        if (memcmp(payload + 5, "\x59\x00", 2) == 0)            return TAG_SENSO4S;
+        if (memcmp(payload + 5, "\xCC\x09", 2) == 0)            return TAG_SENSO4S;
     }
     // Alpicool fridge?
     if (memcmp(payload, "\x02\x01\x06", 3) == 0 && memcmp(payload + 9, "ZHJIELI", 7) == 0) return TAG_ALPICOOL;
@@ -142,7 +159,7 @@ uint8_t tagTypeFromPayload(const uint8_t *payload, const uint8_t *mac) {
     if (memcmp(payload, "\x10\x16\x1A\x18", 4) == 0 && memcmp(mac, payload + 4, 6) == 0) return TAG_MIJIA;
     // Mopeka gas tank sensor?
     if (memcmp(payload, "\x1A\xFF\x0D\x00", 4) == 0 && payload[26] == mac[5]) return TAG_MOPEKA;
-    
+
     return 0xFF; // unknown
 }
 
@@ -286,7 +303,7 @@ void loadWifis() {
             memset(pass, '\0', sizeof(pass));
             file.readBytesUntil('\t', ssid, 32);
             file.readBytesUntil('\n', pass, 64);
-            WiFiMulti.addAP(ssid, pass);
+            wifiMulti.addAP(ssid, pass);
             Serial.printf("wifi loaded: %s / %s\n", ssid, pass);
         }
         file.close();
@@ -479,7 +496,7 @@ void loop() {
             do_send = 0;
             startPortal();
         }
-        // Sometimes GATT client connecting hangs and in the library the timeout is something like 50 days. 
+        // Sometimes GATT client connecting hangs and in the library the timeout is something like 50 days.
         // We don't want to wait that long.
         if (millis() - ble_timer > 60000) {
             Serial.println("BLE looks to be hanged. Reboot.");
@@ -611,7 +628,16 @@ void mqtt_send() {
                     temperature = (short)tagdata[curr_tag][18] * 10;
                     voltage = int((float)tagdata[curr_tag][20] * 1000 + (float)tagdata[curr_tag][21] * 100);
                     sprintf(json, "{\"type\":%d,\"t\":%d,\"tt\":%d,\"bu\":%d,\"s\":%d}",
-                            tagtype[curr_tag], int(temperature), (short)tagdata[curr_tag][8] * 10, voltage, abs(tagrssi[curr_tag]));  
+                            tagtype[curr_tag], int(temperature), (short)tagdata[curr_tag][8] * 10, voltage, abs(tagrssi[curr_tag]));
+                }
+            }
+            // Senso4s gas sensor
+            if (tagtype[curr_tag] == TAG_SENSO4S) {
+                if (tagdata[curr_tag][0] != 0) {
+                    const uint8_t gas_percent = (uint8_t)tagdata[curr_tag][8];
+                    const uint8_t battery_raw = (uint8_t)tagdata[curr_tag][11];
+                    sprintf(json, "{\"type\":%d,\"gp\":%d,\"bp\":%d,\"s\":%d}",
+                            tagtype[curr_tag], gas_percent, battery_raw, abs(tagrssi[curr_tag]));
                 }
             }
 
@@ -624,7 +650,7 @@ void mqtt_send() {
                     if (topic[i] == 32) topic[i] = '_';
                 }
 
-                if (WiFiMulti.run() == WL_CONNECTED) {
+                if (wifiMulti.run() == WL_CONNECTED) {
                     if (curr_tag == 0) {
                         Serial.printf("Connected to SSID=%s - My IP=%s\n",
                                       WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
@@ -687,7 +713,7 @@ void ble_task(void *parameter) {
       */
       if (foundDevices.getCount() == 0 && tagcount > 0) ESP.restart();
       Serial.printf("============= end scan\n");
-  
+
       if (alpicool_index != 0xFF) {
           if (alpicool_heard) {
               if (!pClient->isConnected()) {
@@ -707,8 +733,9 @@ void ble_task(void *parameter) {
           // Send query request
           // See: https://github.com/klightspeed/BrassMonkeyFridgeMonitor
           if (wCharacteristic != nullptr && alpicool_heard) {
+              uint8_t query[] = {0xFE, 0xFE, 0x03, 0x01, 0x02, 0x00};
               Serial.println("Sending query to Alpicool fridge: fefe03010200");
-              wCharacteristic->writeValue({0xfe, 0xfe, 3, 1, 2, 0}, 6);
+              wCharacteristic->writeValue(query, sizeof(query));
           }
           vTaskDelay(1000 / portTICK_PERIOD_MS); // give one second
           pClient->disconnect();
@@ -718,7 +745,7 @@ void ble_task(void *parameter) {
 
       vTaskDelay(30000 / portTICK_PERIOD_MS);
       yield();
-  }  
+  }
 }
 
 /* ------------------------------------------------------------------------------- */

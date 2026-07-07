@@ -34,7 +34,7 @@ The implementation parses manufacturer-specific data from BLE advertisements.
 ### Manufacturer Data Layout
 
 | Offset | Size | Field | Description |
-|---|---:|---|---|
+| --- | ---: | --- | --- |
 | 0 | 1 | `flags` | Model marker in upper nibble, usage mode in lower nibble |
 | 1 | 1 | `level_or_status` | Gas percentage or special status code |
 | 2 | 1 | `reserved_2` | Unknown / undocumented |
@@ -68,7 +68,7 @@ This should be treated as an implementation-derived rule, not an official publis
 The lower nibble encodes usage mode.
 
 | Value | Meaning |
-|---:|---|
+| ---: | --- |
 | 1 | BBQ |
 | 2 | Camping |
 | 3 | Caravanning |
@@ -84,19 +84,19 @@ The `level_or_status` byte may represent either a normal gas level percentage or
 ### Normal Gas Level
 
 | Range | Meaning |
-|---:|---|
+| ---: | --- |
 | 0..100 | Gas level percentage |
 
 ### Anomaly Encoding
 
 | Range | Meaning |
-|---:|---|
+| ---: | --- |
 | 241..247 | Anomaly bitfield encoded as `value - 240` |
 
 Anomaly flag bit meanings:
 
 | Bit Value | Meaning |
-|---:|---|
+| ---: | --- |
 | 1 | Temperature anomaly |
 | 2 | Incline anomaly |
 | 4 | Motion anomaly |
@@ -104,7 +104,7 @@ Anomaly flag bit meanings:
 Examples:
 
 | Raw Value | Decoded Flag Value | Meaning |
-|---:|---:|---|
+| ---: | ---: | --- |
 | 241 | 1 | Temperature |
 | 242 | 2 | Incline |
 | 243 | 3 | Temperature + Incline |
@@ -114,7 +114,7 @@ Examples:
 ### Error and Calibration Codes
 
 | Value | Meaning |
-|---:|---|
+| ---: | --- |
 | 251 | Measurement error |
 | 252 | Scale error |
 | 253 | Sensor error |
@@ -166,14 +166,14 @@ The implementation also references active BLE GATT communication. These are incl
 ### Service UUIDs
 
 | Type | UUID |
-|---|---|
+| --- | --- |
 | Primary service | `00007081-a20b-4d4d-a4de-7f071dbbc1d8` |
 | Scan filter UUID | `00007081-0000-1000-8000-00805f9b34fb` |
 
 ### Characteristic UUIDs
 
 | Purpose | UUID |
-|---|---|
+| --- | --- |
 | Level | `00007082-a20b-4d4d-a4de-7f071dbbc1d8` |
 | Cylinder configuration | `00007083-a20b-4d4d-a4de-7f071dbbc1d8` |
 | History | `00007085-a20b-4d4d-a4de-7f071dbbc1d8` |
@@ -189,7 +189,7 @@ The following formats are included because they were explicitly encoded/decoded 
 Observed length: **5 bytes**
 
 | Offset | Size | Field | Encoding |
-|---|---:|---|---|
+| --- | ---: | --- | --- |
 | 0 | 2 | Empty weight | Little-endian signed 16-bit integer, divided by 100 gives kilograms |
 | 2 | 2 | Gas capacity | Little-endian signed 16-bit integer, divided by 100 gives kilograms |
 | 4 | 1 | Usage mode | Same value set as advertisement usage mode |
@@ -199,7 +199,7 @@ Observed length: **5 bytes**
 Observed length: **7 bytes**
 
 | Offset | Size | Field | Encoding |
-|---|---:|---|---|
+| --- | ---: | --- | --- |
 | 0 | 2 | Year | Little-endian unsigned 16-bit integer |
 | 2 | 1 | Month | 1..12 |
 | 3 | 1 | Day | 1..31 |
@@ -218,7 +218,7 @@ Observed payload structure: repeated **4-byte records**
 Per-record layout:
 
 | Offset | Size | Field | Encoding |
-|---|---:|---|---|
+| --- | ---: | --- | --- |
 | 0 | 2 | Remaining mass | Little-endian signed 16-bit integer, divided by 100 gives kilograms |
 | 2 | 2 | Cycle count delta | Little-endian signed 16-bit integer |
 
