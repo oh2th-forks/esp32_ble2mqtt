@@ -93,6 +93,29 @@ upload them with `pio run -e esp32dev -t uploadfs`.
 
 See [FORMATS.md](FORMATS.md).
 
+### Backing up the existing LittleFS contents
+
+Running `pio run -e esp32dev -t uploadfs` replaces the whole LittleFS partition on the ESP32. If the device already contains configuration files such as `known_wifis.txt` and `known_tags.txt`, back them up first or they will be lost.
+
+For this PlatformIO environment, the LittleFS partition is at flash offset `0x310000` and its size is `0xE0000` bytes (`917504`). You can dump it with `esptool.py`:
+
+`~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 --port <port> --baud 921600 read_flash 0x310000 0xE0000 littlefs_backup.bin`
+
+You can then inspect or unpack the image with `mklittlefs`:
+
+`~/.platformio/packages/tool-mklittlefs/mklittlefs -l -s 917504 -p 256 -b 4096 littlefs_backup.bin`
+
+`mkdir littlefs_backup && ~/.platformio/packages/tool-mklittlefs/mklittlefs -u littlefs_backup -s 917504 -p 256 -b 4096 littlefs_backup.bin`
+
+Recommended workflow before uploading a new filesystem image:
+
+1. Dump and unpack the current LittleFS contents from the device.
+2. Copy `known_wifis.txt`, `known_tags.txt`, and any other device-specific files you want to preserve into `data/littlefs`.
+3. Review the merged contents in `data/littlefs`.
+4. Run `pio run -e esp32dev -t uploadfs`.
+
+If you only want to preserve those text files, copying them from the unpacked backup into `data/littlefs` before `uploadfs` is enough.
+
 ## LED behavior
 
 Optionally an RGB LED can be connected to the board. It acts as a status indicator. At boot the LED
