@@ -142,6 +142,28 @@ uint8_t getTagIndex(const char *mac) {
 */
 
 uint8_t tagTypeFromPayload(const uint8_t *payload, const uint8_t *mac) {
+    // Parse BLE AD structures so manufacturer data can be found at any offset.
+    for (uint8_t i = 0; i < 31;) {
+        const uint8_t ad_len = payload[i];
+        if (ad_len == 0 || i + ad_len >= 32) break;
+
+        const uint8_t ad_type = payload[i + 1];
+        const uint8_t *ad_data = payload + i + 2;
+        const uint8_t ad_data_len = ad_len - 1;
+
+        if (ad_type == 0xFF && ad_data_len >= 2) {
+            if (ad_data_len >= 3 && memcmp(ad_data, "\x99\x04\x05", 3) == 0) return TAG_RUUVI;
+            if (ad_data_len >= 4 && memcmp(ad_data, "\xE5\x02\xDC\xAC", 4) == 0) return TAG_ENERGY;
+            if (ad_data_len >= 4 && memcmp(ad_data, "\xE5\x02\x48\xE9", 4) == 0) return TAG_WATER;
+            if (ad_data_len >= 4 && memcmp(ad_data, "\xE5\x02\x13\x1A", 4) == 0) return TAG_THCPL;
+            if (ad_data_len >= 4 && memcmp(ad_data, "\xE5\x02\x20\x18", 4) == 0) return TAG_DS1820;
+            if (memcmp(ad_data, "\x59\x00", 2) == 0) return TAG_SENSO4S;
+            if (memcmp(ad_data, "\xCC\x09", 2) == 0) return TAG_SENSO4S;
+        }
+
+        i += (ad_len + 1);
+    }
+
     // Has manufacturerdata? If so, check if this is known type.
     if (memcmp(payload, "\x02\x01\x06", 3) == 0 && payload[4] == 0xFF) {
         if (memcmp(payload + 5, "\x99\x04\x05", 3) == 0)      return TAG_RUUVI;
@@ -187,6 +209,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
             // Don't we know the type of this device yet?
             if (tagtype[taginx] == 0) {
                 uint8_t mac[6];
+                memcpy(mac, advDev.getAddress().getNative(), 6);
                 tagtype[taginx] = tagTypeFromPayload(payload, mac);
             }
             // Inkbird IBS-TH2 or Alpicool?
@@ -293,11 +316,11 @@ class ScannedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 
 /* ------------------------------------------------------------------------------- */
 void loadWifis() {
-    if (LittleFS.exists("/LittleFS/known_wifis.txt")) {
+    if (LittleFS.exists("/known_wifis.txt")) {
         char ssid[33];
         char pass[65];
 
-        file = LittleFS.open("/LittleFS/known_wifis.txt");
+        file = LittleFS.open("/known_wifis.txt");
         while (file.available()) {
             memset(ssid, '\0', sizeof(ssid));
             memset(pass, '\0', sizeof(pass));
@@ -308,11 +331,16 @@ void loadWifis() {
         }
         file.close();
     }
-    if (LittleFS.exists("/LittleFS/myhostname.txt")) {
-        file = LittleFS.open("/LittleFS/myhostname.txt");
-        memset(myhostname, 0, sizeof(myhostname));
-        file.readBytesUntil('\n', myhostname, sizeof(myhostname));
+    if (LittleFS.exists("/myhostname.txt")) {
+        char tmpname[sizeof(myhostname)];
+        memset(tmpname, 0, sizeof(tmpname));
+        file = LittleFS.open("/myhostname.txt");
+        file.readBytesUntil('\n', tmpname, sizeof(tmpname));
         file.close();
+        if (strlen(tmpname) > 0) {
+            strncpy(myhostname, tmpname, sizeof(myhostname) - 1);
+            myhostname[sizeof(myhostname) - 1] = '\0';
+        }
     }
     Serial.printf("My hostname: %s\n", myhostname);
 }
@@ -326,9 +354,9 @@ void loadSavedTags() {
         memset(tagdata[i], 0, sizeof(tagdata[i]));
     }
 
-    if (LittleFS.exists("/LittleFS/known_tags.txt")) {
+    if (LittleFS.exists("/known_tags.txt")) {
         uint8_t foo = 0;
-        file = LittleFS.open("/LittleFS/known_tags.txt");
+        file = LittleFS.open("/known_tags.txt");
         while (file.available()) {
             memset(sname, '\0', sizeof(sname));
             memset(smac, '\0', sizeof(smac));
@@ -349,7 +377,7 @@ void loadSavedTags() {
 }
 /* ------------------------------------------------------------------------------- */
 void loadMQTT() {
-    if (LittleFS.exists("/LittleFS/mqtt.txt")) {
+    if (LittleFS.exists("/mqtt.txt")) {
         char tmpstr[8];
         memset(tmpstr, 0, sizeof(tmpstr));
         memset(mqtt_host, 0, sizeof(mqtt_host));
@@ -357,7 +385,7 @@ void loadMQTT() {
         memset(mqtt_pass, 0, sizeof(mqtt_pass));
         memset(topicbase, 0, sizeof(topicbase));
 
-        file = LittleFS.open("/LittleFS/mqtt.txt");
+        file = LittleFS.open("/mqtt.txt");
         while (file.available()) {
             file.readBytesUntil(':', mqtt_host, sizeof(mqtt_host));
             file.readBytesUntil('\n', tmpstr, sizeof(tmpstr));
@@ -455,6 +483,12 @@ void setup() {
     }
 
     LittleFS.begin(false, "/LittleFS", 1);
+    // Ensure hostname file exists to avoid vfs open() warnings on first boot.
+    file = LittleFS.open("/myhostname.txt", "a+");
+    if (file && file.size() == 0) {
+        file.printf("%s\n", myhostname);
+    }
+    if (file) file.close();
     loadSavedTags();
     loadMQTT();
     memset(gattcache,0,sizeof(gattcache));
@@ -634,10 +668,48 @@ void mqtt_send() {
             // Senso4s gas sensor
             if (tagtype[curr_tag] == TAG_SENSO4S) {
                 if (tagdata[curr_tag][0] != 0) {
-                    const uint8_t gas_percent = (uint8_t)tagdata[curr_tag][8];
-                    const uint8_t battery_raw = (uint8_t)tagdata[curr_tag][11];
-                    sprintf(json, "{\"type\":%d,\"gp\":%d,\"bp\":%d,\"s\":%d}",
-                            tagtype[curr_tag], gas_percent, battery_raw, abs(tagrssi[curr_tag]));
+                    bool decoded = false;
+                    for (uint8_t i = 0; i < 31;) {
+                        const uint8_t ad_len = (uint8_t)tagdata[curr_tag][i];
+                        if (ad_len == 0 || i + ad_len >= 32) break;
+
+                        const uint8_t ad_type = (uint8_t)tagdata[curr_tag][i + 1];
+                        const uint8_t *ad_data = (const uint8_t *)tagdata[curr_tag] + i + 2;
+                        const uint8_t ad_data_len = ad_len - 1;
+
+                        if (ad_type == 0xFF && ad_data_len >= 7) {
+                            const bool senso4s_id =
+                                (memcmp(ad_data, "\x59\x00", 2) == 0) ||
+                                (memcmp(ad_data, "\xCC\x09", 2) == 0);
+
+                            if (senso4s_id) {
+                                // Matches scripts/senso4s_listen.py payload mapping:
+                                // manufacturer payload starts after 2-byte company id.
+                                const uint8_t *mfg = ad_data + 2;
+                                const uint8_t mfg_len = ad_data_len - 2;
+                                if (mfg_len >= 5) {
+                                    const uint8_t flags = mfg[0];
+                                    const uint8_t level_or_status = mfg[1];
+                                    const uint8_t battery_raw = mfg[4];
+                                        (void)flags;
+
+                                    if (level_or_status <= 100) {
+                                        sprintf(json, "{\"type\":%d,\"gp\":%d,\"bp\":%d,\"s\":%d}",
+                                            tagtype[curr_tag], level_or_status, battery_raw, abs(tagrssi[curr_tag]));
+                                    } else {
+                                        sprintf(json, "{\"type\":%d,\"st\":%d,\"bp\":%d,\"s\":%d}",
+                                            tagtype[curr_tag], level_or_status, battery_raw, abs(tagrssi[curr_tag]));
+                                    }
+                                    decoded = true;
+                                }
+                                break;
+                            }
+                        }
+                        i += (ad_len + 1);
+                    }
+                    if (!decoded) {
+                        json[0] = 0;
+                    }
                 }
             }
 
@@ -817,7 +889,7 @@ void httpRoot() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/index.html");
+    file = LittleFS.open("/index.html");
     html = file.readString();
     file.close();
 
@@ -839,12 +911,12 @@ void httpWifi() {
 
     memset(tablerows, '\0', sizeof(tablerows));
 
-    file = LittleFS.open("/LittleFS/wifis.html");
+    file = LittleFS.open("/wifis.html");
     html = file.readString();
     file.close();
 
-    if (LittleFS.exists("/LittleFS/known_wifis.txt")) {
-        file = LittleFS.open("/LittleFS/known_wifis.txt");
+    if (LittleFS.exists("/known_wifis.txt")) {
+        file = LittleFS.open("/known_wifis.txt");
         while (file.available()) {
             memset(rowbuf, '\0', sizeof(rowbuf));
             memset(ssid, '\0', sizeof(ssid));
@@ -859,8 +931,8 @@ void httpWifi() {
         }
         file.close();
     }
-    if (LittleFS.exists("/LittleFS/myhostname.txt")) {
-        file = LittleFS.open("/LittleFS/myhostname.txt");
+    if (LittleFS.exists("/myhostname.txt")) {
+        file = LittleFS.open("/myhostname.txt");
         memset(myhostname, '\0', sizeof(myhostname));
         file.readBytesUntil('\n', myhostname, sizeof(myhostname));
         file.close();
@@ -883,7 +955,7 @@ void httpSaveWifi() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/known_wifis.txt", "w");
+    file = LittleFS.open("/known_wifis.txt", "w");
     if (!file) {
         Serial.println("Failed to open file for writing");
     }
@@ -906,13 +978,13 @@ void httpSaveWifi() {
     file.close();
 
     if (server.arg("myhostname").length() > 0) {
-        file = LittleFS.open("/LittleFS/myhostname.txt", "w");
+        file = LittleFS.open("/myhostname.txt", "w");
         file.print(server.arg("myhostname"));
         file.print("\n");
         file.close();
     }
 
-    file = LittleFS.open("/LittleFS/ok.html");
+    file = LittleFS.open("/ok.html");
     html = file.readString();
     file.close();
 
@@ -926,7 +998,7 @@ void httpMQTT() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/mqtt.html");
+    file = LittleFS.open("/mqtt.html");
     html = file.readString();
     file.close();
 
@@ -943,7 +1015,7 @@ void httpSaveMQTT() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/mqtt.txt", "w");
+    file = LittleFS.open("/mqtt.txt", "w");
     file.printf("%s\n", server.arg("hostport").c_str());
     file.printf("%s\n", server.arg("userpass").c_str());
     file.printf("%s\n", server.arg("topicbase").c_str());
@@ -951,7 +1023,7 @@ void httpSaveMQTT() {
     file.close();
     loadMQTT(); // reread
 
-    file = LittleFS.open("/LittleFS/ok.html");
+    file = LittleFS.open("/ok.html");
     html = file.readString();
     file.close();
 
@@ -969,7 +1041,7 @@ void httpSensors() {
     portal_timer = millis();
     timerWrite(timer, 0);
 
-    file = LittleFS.open("/LittleFS/sensors.html");
+    file = LittleFS.open("/sensors.html");
     html = file.readString();
     file.close();
 
@@ -1030,7 +1102,7 @@ void httpSaveSensors() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/known_tags.txt", "w");
+    file = LittleFS.open("/known_tags.txt", "w");
 
     for (int i = 0; i < server.arg("counter").toInt(); i++) {
         if (server.arg("sname" + String(i)).length() > 0) {
@@ -1043,7 +1115,7 @@ void httpSaveSensors() {
     file.close();
     loadSavedTags(); // reread
 
-    file = LittleFS.open("/LittleFS/ok.html");
+    file = LittleFS.open("/ok.html");
     html = file.readString();
     file.close();
 
@@ -1057,7 +1129,7 @@ void httpStyle() {
     timerWrite(timer, 0);
     String css;
 
-    file = LittleFS.open("/LittleFS/style.css");
+    file = LittleFS.open("/style.css");
     css = file.readString();
     file.close();
     server.send(200, "text/css", css);
@@ -1069,7 +1141,7 @@ void httpBoot() {
     timerWrite(timer, 0);
     String html;
 
-    file = LittleFS.open("/LittleFS/ok.html");
+    file = LittleFS.open("/ok.html");
     html = file.readString();
     file.close();
 

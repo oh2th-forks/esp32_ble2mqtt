@@ -27,7 +27,7 @@ supported at the moment are:
 
 These same numbers are used internally in [OH2MP Smart RV](https://github.com/oh2mp/esp32_smart_rv)
 
-------------;
+---
 
 ## Fields in JSON messages
 
@@ -51,8 +51,9 @@ These field names are chosen so that they are short to make messages more compac
 | tt        | 1/10°C  | thermostat target temperature in deciCelsius.    |
 | gh        | cm      | LPG level height in gas tank (see About Mopeka✓) |
 | gp        | %       | LPG percentage remaining in gas tank.            |
+| st        |         | Status code if received. (Senso4s)               |
 
-------------;
+---
 
 ## An example JSON message from a Ruuvi tag data
 
@@ -62,7 +63,7 @@ These field names are chosen so that they are short to make messages more compac
 
 Here we see that type is 1 meaning that this is a Ruuvi tag. The temperature is 24.3°C, relative humidity 32%, battery voltage 2.821 volts and athmospheric pressure 1003 hPa. RSSI is -42 dBm.
 
-------------;
+---
 
 ## About Mopeka✓
 
